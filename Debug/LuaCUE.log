@@ -1,6 +1,2 @@
-﻿  init.cpp
-  WARNING: CUESDK deprecation warnings were disabled
-  lcuelib.cpp
-  lcuelib_device.cpp
-  Generating Code...
+﻿  lcuelib.cpp
   LuaCUE.vcxproj -> E:\Spar\C++\LuaCUE\Debug\LuaCUE.exe

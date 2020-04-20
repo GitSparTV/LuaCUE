@@ -7,3 +7,7 @@
 *.txt
 *.idb
 *.ilk
+*.log
+*.exp
+*.lib
+*.enc

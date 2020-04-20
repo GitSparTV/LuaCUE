@@ -7,42 +7,20 @@
 #endif
 
 #include <iostream>
+#include <string>
 #include <thread>
 #include <cstdlib>
 #include <windows.h>
+#include <signal.h>
 #include "lua.hpp"
 #include "lcuelib.h"
 #include "luahelpers.h"
 
-HANDLE hConsole;
 lua_State* L;
-
-static void PrintStack(Lua, int blist = 0)
-{
-	int top = lua_gettop(L);
-	SetConsoleTextAttribute(hConsole, 14);
-	print("Stack:");
-	SetConsoleTextAttribute(hConsole, 10);
-	for (int i = 1; i <= top; i++) {
-		if (i == blist) { continue; }
-		lua_getglobal(L, "tostring");
-		lua_pushvalue(L, i);
-		lua_call(L, 1, 1);
-		printf("\t%d\t=\t%s \t(%s)\n", i, lua_tostring(L, -1), lua_typename(L, i));
-		lua_pop(L, 3);
-	}
-	printf("\n");
-	SetConsoleTextAttribute(hConsole, 15);
-	return;
-}
 
 static int cue_error(Lua) {
 	MessageBoxA(NULL, lua_tostring(L, -1), "Lua Error", MB_OK | MB_ICONWARNING);
 	return 0;
-}
-
-void atexit() {
-	lua_close(L);
 }
 
 //double getKeyboardWidth(CorsairLedPositions* ledPositions)
@@ -53,29 +31,68 @@ void atexit() {
 //		});
 //	return minmaxLeds.second->left + minmaxLeds.second->width - minmaxLeds.first->left;
 //}
+#include "poller.h"
+Poller p;
 
-void EventCallback(void* _, const CorsairEvent* event) {
+void CorsairEventCallback(void* _, const CorsairEvent* event) {
+	CorsairDevice* d;
 	switch (event->id) {
-	case CEI_DeviceConnectionStatusChangedEvent: {
-		print("CEI_DeviceConnectionStatusChangedEvent");
-		print(event->deviceConnectionStatusChangedEvent->deviceId);
-		printf("IsConnected: %d\n", event->deviceConnectionStatusChangedEvent->isConnected);
-		break;
+		case CEI_Invalid:
+			break;
+		case CEI_DeviceConnectionStatusChangedEvent:
+			if (!event->deviceConnectionStatusChangedEvent->isConnected) {
+				d = FindByDeviceID(event->deviceConnectionStatusChangedEvent->deviceId);
+				if (d) {
+					d->Clear();
+				}
+			}
+
+			p.Add(new Event(EVENT_CORSAIR, CEI_DeviceConnectionStatusChangedEvent, event->deviceConnectionStatusChangedEvent->deviceId, event->deviceConnectionStatusChangedEvent->isConnected));
+			break;
+
+		case CEI_KeyEvent:
+			p.Add(new Event(EVENT_CORSAIR, CEI_KeyEvent, event->keyEvent->deviceId, event->keyEvent->isPressed, event->keyEvent->keyId));
+			break;
+
+		default:
+			break;
 	}
-	case CEI_KeyEvent: {
-		print("CEI_KeyEvent");
-		print(event->keyEvent->deviceId);
-		printf("Pressed: %d\n", event->keyEvent->isPressed);
-		printf("KeyId: %d\n", event->keyEvent->keyId);
-		break;
+}
+
+static void OnSignalInterrupt(int id) {
+	print("Signal");
+	signal(id, SIG_DFL);
+}
+
+
+#include <array>
+HHOOK _hook;
+
+std::array<bool, 0xFF> KeysState;
+LRESULT __stdcall HookCallback(int nCode, WPARAM wParam, LPARAM lParam)
+{
+	if (nCode < 0) return CallNextHookEx(_hook, nCode, wParam, lParam);
+
+	KBDLLHOOKSTRUCT kbdStruct = *((KBDLLHOOKSTRUCT*)lParam);
+	unsigned char key = (unsigned char)kbdStruct.vkCode;
+	
+	switch (wParam) {
+		case WM_KEYDOWN:
+		case WM_SYSKEYDOWN: {
+			if (KeysState[key]) break;
+			KeysState[key] = true;
+			p.Add(new Event(EVENT_KEY, key, true));
+			break;
+		}
+		case WM_KEYUP:
+		case WM_SYSKEYUP: {
+			KeysState[key] = false;
+			p.Add(new Event(EVENT_KEY, key, false));
+			break;
+		}
 	}
-	case CEI_Invalid: {
-		print("CEI_Invalid");
-		break;
-	}
-	default:
-		break;
-	}
+
+	return CallNextHookEx(_hook, nCode, wParam, lParam);
 }
 
 //int WinMain(HINSTANCE hInstance,
@@ -83,9 +100,13 @@ void EventCallback(void* _, const CorsairEvent* event) {
 //	LPSTR    lpCmdLine,
 //	int       nCmdShow)
 //{
+int LUA_ERRORINDEX;
+
 int main() {
 	hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	std::atexit(atexit);
+	SetConsoleTextAttribute(hConsole, 15);
+	signal(SIGBREAK, OnSignalInterrupt);
+	signal(SIGINT, OnSignalInterrupt);
 	const auto ProtDetails = CorsairPerformProtocolHandshake();
 
 	if (const auto error = CorsairGetLastError()) {
@@ -95,25 +116,42 @@ int main() {
 	}
 
 	L = luaL_newstate();
-	//lua_atpanic(L, cue_error);
+	lua_pushcfunction(L, ErrorHandler);
+	LUA_ERRORINDEX = luaL_ref(L, LUA_REGISTRYINDEX);
+	lua_atpanic(L, cue_error);
+
 	luaL_openlibs(L);
+	
 	luaopen_cue(L);
 	cue_PushProtocolDetails(L, ProtDetails);
-	PrintStack(L);
+	
+	CorsairSubscribeForEvents(CorsairEventCallback, NULL);
 
-	CorsairSubscribeForEvents(EventCallback, NULL);
-
+	lua_errhandler;
 	auto status = luaL_loadfile(L, "init.lua");
-	lua_call(L, 0, 0);
+	xpcall(0, 0);
+
+	std::thread KeyPress([] {
+		_hook = SetWindowsHookEx(WH_KEYBOARD_LL, HookCallback, NULL, 0);
+		MSG msg;
+		while (GetMessage(&msg, NULL, 0, 0)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		}
+	});
 
 	while (true) {
-		lua_getglobal(L, "update");
-		lua_call(L, 0, 0);
+		Event* e = nullptr;
+		while (p.Pop(e)) {
+			e->ToLua(L);
+			delete e;
+		}
+		lua_getglobal(L, "Update");
+		lua_pcall(L, 0, 0, 1);
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
 
-	lua_close(L);
-
+	KeyPress.join();
+	//CorsairReleaseControl(CAM_ExclusiveLightingControl);
 	return 0;
 }

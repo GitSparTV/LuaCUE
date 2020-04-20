@@ -24,12 +24,21 @@
     <ClCompile Include="lcuelib_device.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="poller.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lcuelib.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="luahelpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="poller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lcuelib_device.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
