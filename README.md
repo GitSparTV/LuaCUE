@@ -7,6 +7,8 @@ Built with LuaJIT 2.1.0-beta3 x32.
 
 Consult with this [page](https://corsairofficial.github.io/cue-sdk/) about enums and internal functions.
 
+Unimplemented: DYI device channels.
+
 # API
 
 
