@@ -15,7 +15,7 @@ function printt(t, indent, antiloop)
 			antiloop[v] = true
 			printt(v, indent + 1, antiloop)
 		else
-			io.write(v)
+			io.write(tostring(v))
 			io.write("\n")
 		end
 	end
