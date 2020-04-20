@@ -40,7 +40,7 @@ Converts A-Z to CorsairLedId. Yeah, only them.
 
 ### CorsairDevice(number)
 
-Returns `CorsairDevice` object. Indexes starts from 1.
+Returns `CorsairDevice` object. Indexes start from 1.
 
 ### function Update()
 
