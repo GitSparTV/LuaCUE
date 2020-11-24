@@ -1,10 +1,6 @@
 #define CORSAIR_LIGHTING_SDK_DISABLE_DEPRECATION_WARNINGS
 
-#ifdef __APPLE__
-#include <CUESDK/CUESDK.h>
-#else
 #include <CUESDK.h>
-#endif
 
 #include <iostream>
 #include <string>
